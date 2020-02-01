@@ -1,19 +1,48 @@
-#include <iostream>
+#if !defined(WIN32)
+#  define BOOST_TEST_DYN_LINK
+#endif
+#define BOOST_TEST_MODULE GiNaC_Test
+#include <boost/test/unit_test.hpp>
+
+#include <string>
 #include <ginac/ginac.h>
 
-int main(int, char**) {
+
+BOOST_AUTO_TEST_SUITE(GiNaCTestSuite)
+
+BOOST_AUTO_TEST_CASE(test_GCD) {
     const GiNaC::numeric a   = 2 * 2 * 2  * 3 * 3  * 5               * 11;
     const GiNaC::numeric b   = 2          * 3      * 5 * 5 * 5  * 7;
     const GiNaC::numeric gcd = 2          * 3      * 5;
-    const GiNaC::numeric lcm = 2          * 3      * 5  * 2*2*3*5*5*7*11;
     const GiNaC::numeric c_gcd = GiNaC::gcd(a, b);
+    BOOST_CHECK_EQUAL(c_gcd, gcd);
+}
+
+BOOST_AUTO_TEST_CASE(test_LCM) {
+    const GiNaC::numeric a   = 2 * 2 * 2  * 3 * 3  * 5               * 11;
+    const GiNaC::numeric b   = 2          * 3      * 5 * 5 * 5  * 7;
+    const GiNaC::numeric lcm = 2          * 3      * 5  * 2*2*3*5*5*7*11;
     const GiNaC::numeric c_lcm = GiNaC::lcm(a, b);
 
-    std::cout << "a = " << a << std::endl;
-    std::cout << "b = " << b << std::endl;
-    std::cout << "gcd (mine)  = " << gcd << std::endl;
-    std::cout << "gcd (GiNaC) = " << c_gcd << std::endl;
-    std::cout << "lcm (mine)  = " << lcm << std::endl;
-    std::cout << "lcm (GiNaC) = " << c_lcm << std::endl;
-    return 0;
+    BOOST_CHECK_EQUAL(c_lcm, lcm);
 }
+
+BOOST_AUTO_TEST_CASE(test_ConvertFromString) {
+    const char* value = "12345";  // not a string
+    const GiNaC::numeric number(value);  // const char*
+    BOOST_CHECK_EQUAL(number, GiNaC::numeric(12345));
+}
+
+BOOST_AUTO_TEST_CASE(test_ConvertBigNumbers) {
+    const char* value = "1000000000000000000000";
+    const GiNaC::numeric number(value);
+    BOOST_CHECK_EQUAL(number, GiNaC::numeric("1E21"));
+}
+
+// BOOST_AUTO_TEST_CASE(test_ConvertToString) {
+//     const GiNaC::numeric number(12345);
+//     const std::string value = number.;
+//     BOOST_CHECK_EQUAL(number, GiNaC::numeric(12345));
+// }
+
+BOOST_AUTO_TEST_SUITE_END()
