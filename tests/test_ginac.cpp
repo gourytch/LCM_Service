@@ -5,6 +5,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <string>
+#include <sstream>
 #include <ginac/ginac.h>
 
 
@@ -27,10 +28,16 @@ BOOST_AUTO_TEST_CASE(test_LCM) {
     BOOST_CHECK_EQUAL(c_lcm, lcm);
 }
 
-BOOST_AUTO_TEST_CASE(test_ConvertFromString) {
+BOOST_AUTO_TEST_CASE(test_ConvertFromStringNormal) {
     const char* value = "12345";  // not a string
     const GiNaC::numeric number(value);  // const char*
     BOOST_CHECK_EQUAL(number, GiNaC::numeric(12345));
+}
+
+BOOST_AUTO_TEST_CASE(test_ConvertFromStringExponent) {
+    const char* value = "1E6";
+    const GiNaC::numeric number(value);
+    BOOST_CHECK_EQUAL(number, GiNaC::numeric(1000000));
 }
 
 BOOST_AUTO_TEST_CASE(test_ConvertBigNumbers) {
@@ -39,10 +46,13 @@ BOOST_AUTO_TEST_CASE(test_ConvertBigNumbers) {
     BOOST_CHECK_EQUAL(number, GiNaC::numeric("1E21"));
 }
 
-// BOOST_AUTO_TEST_CASE(test_ConvertToString) {
-//     const GiNaC::numeric number(12345);
-//     const std::string value = number.;
-//     BOOST_CHECK_EQUAL(number, GiNaC::numeric(12345));
-// }
+BOOST_AUTO_TEST_CASE(test_ConvertToString) {
+    const GiNaC::numeric number(1234567890UL);
+    // quick-and-dirty numeric-to-sting converter
+    std::stringstream ss;
+    ss << number;
+    const std::string str = ss.str();
+    BOOST_CHECK_EQUAL(str, std::string("1234567890"));
+}
 
 BOOST_AUTO_TEST_SUITE_END()

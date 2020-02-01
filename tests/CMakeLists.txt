@@ -20,7 +20,7 @@ add_executable(test_ginac test_ginac.cpp)
 target_link_libraries(test_ginac ${GINAC_LIBRARIES})
 
 add_executable(test_calculator test_calculator.cpp)
-target_link_libraries(test_calculator ${GINAC_LIBRARIES})
+target_link_libraries(test_calculator calculator ${GINAC_LIBRARIES})
 
 add_test(NAME Test_For_Test COMMAND test_empty)
 add_test(NAME Test_GiNaC COMMAND test_ginac)

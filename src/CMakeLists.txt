@@ -22,14 +22,17 @@ pkg_check_modules(GINAC REQUIRED ginac)
 pkg_check_modules(EVENT REQUIRED libevent)
 pkg_check_modules(EVENT_PTHREADS REQUIRED libevent_pthreads)
 
+add_library(calculator STATIC calculator.cpp)
+
 add_executable(client client.cpp)
 target_link_libraries(client
                       ${EVENT_LIBRARIES}
                       ${Boost_PROGRAM_OPTIONS_LIBRARY}
                      )
 
-add_executable(server server.cpp calculator.cpp)
+add_executable(server server.cpp)
 target_link_libraries(server
+                      calculator
                       ${GINAC_LIBRARIES}
                       ${EVENT_PTHREADS_LIBRARIES}
                      )

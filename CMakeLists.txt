@@ -42,6 +42,7 @@ pkg_check_modules(GINAC REQUIRED ginac)
 pkg_check_modules(EVENT REQUIRED libevent)
 pkg_check_modules(EVENT_PTHREADS REQUIRED libevent_pthreads)
 
+include_directories(include)
 
 add_subdirectory(src)
 add_subdirectory(tests)
