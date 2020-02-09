@@ -25,7 +25,7 @@ BOOST_AUTO_TEST_CASE(test_assignment) {
 }
 
 BOOST_AUTO_TEST_CASE(test_invalid_assignment) {
-    Calculator calc("12.321");
+    Calculator calc("bzzz!");
     BOOST_CHECK_EQUAL(calc.is_valid(), false);
     BOOST_CHECK_EQUAL(calc.get_result(), "NaN");
 }
