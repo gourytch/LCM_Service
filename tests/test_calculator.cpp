@@ -30,4 +30,22 @@ BOOST_AUTO_TEST_CASE(test_invalid_assignment) {
     BOOST_CHECK_EQUAL(calc.get_result(), "NaN");
 }
 
+BOOST_AUTO_TEST_CASE(test_invalid_signed_assignment_minus) {
+    Calculator calc("-12");
+    BOOST_CHECK_EQUAL(calc.is_valid(), false);
+    BOOST_CHECK_EQUAL(calc.get_result(), "NaN");
+}
+
+BOOST_AUTO_TEST_CASE(test_invalid_signed_assignment_plus) {
+    Calculator calc("+12");
+    BOOST_CHECK_EQUAL(calc.is_valid(), false);
+    BOOST_CHECK_EQUAL(calc.get_result(), "NaN");
+}
+
+BOOST_AUTO_TEST_CASE(test_invalid_non_integer_assignment) {
+    Calculator calc("12.34");
+    BOOST_CHECK_EQUAL(calc.is_valid(), false);
+    BOOST_CHECK_EQUAL(calc.get_result(), "NaN");
+}
+
 BOOST_AUTO_TEST_SUITE_END()

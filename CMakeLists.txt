@@ -26,7 +26,7 @@ SET (CMAKE_ARCHIVE_OUTPUT_DIRECTORY
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-set(Boost_DEBUG ON)
+# set(Boost_DEBUG ON)
 
 set(Boost_USE_STATIC_LIBS OFF)
 set(Boost_USE_STATIC_RUNTIME OFF)
@@ -39,8 +39,11 @@ find_package(Boost 1.65 COMPONENTS
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GINAC REQUIRED ginac)
-pkg_check_modules(EVENT REQUIRED libevent)
-pkg_check_modules(EVENT_PTHREADS REQUIRED libevent_pthreads)
+pkg_check_modules(ProtoBuf REQUIRED protobuf)
+pkg_check_modules(gRPC REQUIRED grpc++)
+
+find_program(PROTOC protoc)
+find_program(gRPC_CPP_PLUGIN grpc_cpp_plugin)
 
 include_directories(include)
 
