@@ -37,8 +37,7 @@ void Calculator::reset() {
 }
 
 void Calculator::invalidate() {
-    _accumulator = GiNaC::numeric(1);
-    _valid = true;
+    _valid = false;
 }
 
 void Calculator::add_value(const std::string& value) {
