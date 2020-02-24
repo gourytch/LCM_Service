@@ -1,132 +1,159 @@
+#include <array>
+#include <cstdlib>
+#include <ctime>
 #include <iostream>
+#include <memory>
+#include <regex>
+#include <string>
+#include <vector>
+
 #include <event2/event.h>
+#include <event2/dns.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
 #include <event2/buffer.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <limits.h>
 
 
-#define VERIFY(cond) do {                       \
-    if (!(cond)) {                              \
-        fprintf(stderr, "[error] %s\n", #cond); \
-        exit(EXIT_FAILURE);                     \
-    }                                           \
-} while (0);                                    \
+const auto kNaN = "NaN"; // "Not a Number" value
 
-#define URL_MAX 4096
+const auto DEFAULT_SERVER_HOST = "localhost";
+const auto DEFAULT_SERVER_PORT = 50005;
 
-struct connect_base {
-    evhttp_connection *evcon;
-    evhttp_uri *location;
-};
+const auto HEADER_HOST = "Host";
+const auto HEADER_SESSION = "Session";
 
-static struct evhttp_uri* uri_parse(const char *str)
-{
-    struct evhttp_uri *uri;
-    VERIFY(uri = evhttp_uri_parse(str));
-    VERIFY(evhttp_uri_get_host(uri));
-    VERIFY(evhttp_uri_get_port(uri) > 0);
-    return uri;
-}
-static char* uri_path(struct evhttp_uri *uri, char buffer[URL_MAX])
-{
-    struct evhttp_uri *path;
+const auto INITIAL_SESSION_VALUE = "";
 
-    VERIFY(evhttp_uri_join(uri, buffer, URL_MAX));
 
-    path = evhttp_uri_parse(buffer);
-    evhttp_uri_set_scheme(path, NULL);
-    evhttp_uri_set_userinfo(path, 0);
-    evhttp_uri_set_host(path, NULL);
-    evhttp_uri_set_port(path, -1);
-    VERIFY(evhttp_uri_join(path, buffer, URL_MAX));
-    return buffer;
-}
-static char* uri_hostport(struct evhttp_uri *uri, char buffer[URL_MAX])
-{
-    VERIFY(evhttp_uri_join(uri, buffer, URL_MAX));
-    VERIFY(evhttp_uri_get_host(uri));
-    VERIFY(evhttp_uri_get_port(uri) > 0);
-    evutil_snprintf(buffer, URL_MAX, "%s:%d",
-        evhttp_uri_get_host(uri), evhttp_uri_get_port(uri));
-    return buffer;
+std::string readline(evbuffer* evbuf) {
+    size_t count;
+    auto ptr = evbuffer_readln(evbuf, &count, EVBUFFER_EOL_ANY);
+    if (ptr == nullptr) return {};
+    return std::string(ptr, ptr + count);
 }
 
-static void get_cb(struct evhttp_request *req, void *arg)
-{
-    ev_ssize_t len;
-    struct evbuffer *evbuf;
 
-    VERIFY(req);
-
-    evbuf = evhttp_request_get_input_buffer(req);
-    len = evbuffer_get_length(evbuf);
-    fwrite(evbuffer_pullup(evbuf, len), len, 1, stdout);
-    evbuffer_drain(evbuf, len);
+std::vector<std::string> getUserInput() {
+    std::cout << "enter some natural numbers delimited by space. empty input means end of work" << std::endl;
+    std::string input;
+    std::getline(std::cin, input);
+    std::regex rx("\\s+");
+    return {
+        std::sregex_token_iterator(input.begin(), input.end(), rx, -1), {}
+    };
 }
 
-static void connect_cb(struct evhttp_request *proxy_req, void *arg)
-{
-    struct connect_base *base = arg;
-    struct evhttp_connection *evcon = base->evcon;
-    struct evhttp_uri *location = base->location;
-    struct evhttp_request *req;
-    char buffer[URL_MAX];
+std::vector<std::string> getRobotInput() {
+    std::srand(std::time(nullptr));
+    std::vector<std::string> ret;
+    for (auto numNumbers = std::rand() % 10; numNumbers > 0; --numNumbers) {
+        std::string n;
+        for (auto numDigits = std::rand() % 10 + 1; numDigits > 0; --numDigits) {
+            n += '0' + (std::rand() % 10);
+        }
+        ret.emplace_back(std::move(n));
+    }
+    return ret;  // empty ::= end of session
+}
 
-    VERIFY(proxy_req);
-    VERIFY(evcon);
-
-    req = evhttp_request_new(get_cb, NULL);
-    evhttp_add_header(req->output_headers, "Connection", "close");
-    evhttp_add_header(req->output_headers, "Host", evhttp_uri_get_host(location));
-    VERIFY(!evhttp_make_request(evcon, req, EVHTTP_REQ_GET,
-        uri_path(location, buffer)));
+void onSuccess(evhttp_request* req, void* arg) {
+    auto evbuf = evhttp_request_get_input_buffer(req);
+    std::clog << "got response " << evhttp_request_get_response_code(req)
+              << ": " << evhttp_request_get_response_code_line(req) << std::endl;
+    auto answer = readline(evbuf);
+    std::cout << "ANSWER IS: " << answer << std::endl;
+    if (answer == kNaN) {
+        std::clog << "break the loop" << std::endl;
+        event_base_loopbreak(reinterpret_cast<event_base*>(arg));
+        return;
+    }
+    auto headers = evhttp_request_get_input_headers(req);
+    auto sessionHeader = evhttp_find_header(headers, HEADER_SESSION);
+    auto sessionData = std::string(sessionHeader ? sessionHeader : "");
+    std::clog << "sessiondata <" << sessionData << ">" << std::endl;
+    // break for now
+    std::clog << "break the loop" << std::endl;
+    event_base_loopbreak(reinterpret_cast<event_base*>(arg));
 }
 
 
 void usage(const char* exename) {
     std::cout << "usage: " << exename << " hostname[:port]" << std::endl;
+    exit(1);
 }
 
 
-int main(int argc, const char **argv)
-{
-    char hostport[URL_MAX];
+#define __NEW_MAIN__
+#ifdef __NEW_MAIN__
+int main(int argc, const char **argv) {
 
-    struct evhttp_uri *location;
-    struct evhttp_uri *proxy;
+    // if (argc != 2) usage(argv[0]);
+    const char* arg = (argc == 2) ? argv[1] : "http://localhost:50005/lcm";
+    // parse URI
+    std::unique_ptr<evhttp_uri, decltype(&evhttp_uri_free)>
+            uri(evhttp_uri_parse(arg), &evhttp_uri_free);
+    if (!uri) throw std::runtime_error("uri");
+    auto serverHost = std::string(evhttp_uri_get_host(uri.get()));
+    auto serverPort = evhttp_uri_get_port(uri.get());
+    if (serverHost.empty()) serverHost = DEFAULT_SERVER_HOST;
+    if (serverPort == -1) serverPort = DEFAULT_SERVER_PORT;
 
-    struct event_base *base;
-    struct evhttp_connection *evcon;
-    struct evhttp_request *req;
-
-    struct connect_base connect_base;
-
-    if (argc != 2) usage(argv[0]);
-
-    proxy    = uri_parse(argv[1]);
-    location = uri_parse(argv[2]);
-
-    VERIFY(base = event_base_new());
-    VERIFY(evcon = evhttp_connection_base_new(base, NULL,
-        evhttp_uri_get_host(proxy), evhttp_uri_get_port(proxy)));
-    connect_base.evcon = evcon;
-    connect_base.location = location;
-    VERIFY(req = evhttp_request_new(connect_cb, &connect_base));
-
-    uri_hostport(location, hostport);
-    evhttp_add_header(req->output_headers, "Connection", "keep-alive");
-    evhttp_add_header(req->output_headers, "Proxy-Connection", "keep-alive");
-    evhttp_add_header(req->output_headers, "Host", hostport);
-    evhttp_make_request(evcon, req, EVHTTP_REQ_CONNECT, hostport);
-
-    event_base_dispatch(base);
-
-    evhttp_connection_free(evcon);
-    event_base_free(base);
-    evhttp_uri_free(proxy);
-    evhttp_uri_free(location);
+    // create event_base
+    std::unique_ptr<event_base, decltype(&event_base_free)>
+            EventBase(event_base_new(), &event_base_free);
+    if (!EventBase) throw std::runtime_error("EventBase");
+    // create evdns_base
+    auto EvDNSDeleter = [](evdns_base* p) { evdns_base_free(p, 0); };
+    std::unique_ptr<evdns_base, decltype(EvDNSDeleter)>
+            EvDNSBase(evdns_base_new(EventBase.get(), 1), EvDNSDeleter);
+    if (!EvDNSBase) throw std::runtime_error("EvDNSBase");
+    // create evhttp_connection
+    std::unique_ptr<evhttp_connection, decltype(&evhttp_connection_free)>
+            Connection(evhttp_connection_base_new(EventBase.get(),
+                                                  EvDNSBase.get(),
+                                                  serverHost.c_str(),
+                                                  serverPort),
+                       &evhttp_connection_free);
+    if (!Connection) throw std::runtime_error("Connection");
+    // create evhttp_request
+    auto Request = evhttp_request_new(onSuccess, EventBase.get());
+    if (!Request) throw std::runtime_error("Request");
+    // fill request
+    evhttp_add_header(Request->output_headers, HEADER_HOST, serverHost.c_str());
+    evhttp_add_header(Request->output_headers, HEADER_SESSION, INITIAL_SESSION_VALUE);
+    //    auto input = getUserInput();
+    auto input = getRobotInput();
+    auto evbuf = evhttp_request_get_output_buffer(Request);
+    for (auto& it: input) {
+        std::cout << "add " << it << std::endl;
+        evbuffer_add_printf(evbuf, "%s\n", it.c_str());
+    }
+    evhttp_make_request(Connection.get(), Request, EVHTTP_REQ_POST, evhttp_uri_get_path(uri.get()));
+    // dispatch
+    event_base_dispatch(EventBase.get());
+    std::cout << "done.";
     return 0;
 }
+#else
+int main(int, const char**) {
+    const char* arg = "http://localhost:50005/lcm";
+    std::cout << "allocate" << std::endl;
+    auto* uri = evhttp_uri_parse(arg);
+    auto* base = event_base_new();
+    auto* evdns = evdns_base_new(base, 1);
+    auto* conn = evhttp_connection_base_new(base, NULL,
+                                            evhttp_uri_get_host(uri),
+                                            evhttp_uri_get_port(uri));
+    auto* rq = evhttp_request_new(onSuccess, base); // released in the depths of libevent
+    evhttp_add_header(rq->output_headers, "Host", evhttp_uri_get_host(uri));
+    evhttp_make_request(conn, rq, EVHTTP_REQ_POST, evhttp_uri_get_path(uri));
+    std::cout << "dispatch" << std::endl;
+    event_base_dispatch(base);
+    evhttp_connection_free(conn);
+    evdns_base_free(evdns, 1);
+    event_base_free(base);
+    evhttp_uri_free(uri);
+    return 0;
+}
+
+#endif

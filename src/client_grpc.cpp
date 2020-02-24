@@ -29,7 +29,7 @@ static void show_usage_and_exit(const char* appname) {
 int main(int argc, char** argv) {
     std::string server_host = DEFAULT_HOST;
     int server_port = DEFAULT_PORT;
-    if (argc < 2 || argc > 3) show_usage_and_exit(argv[0]);
+    if (argc < 2 || argc > 3) show_usage_and_exit(argv[0]);  
 
     exit(EXIT_SUCCESS);
 }

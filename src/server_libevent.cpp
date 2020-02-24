@@ -5,77 +5,115 @@
 #include <thread>
 #include <cstdint>
 #include <vector>
+#include <array>
 
-#include <event.h>
+#include <event2/event.h>
+#include <event2/buffer.h>
 #include <event2/http.h>
+#include <event2/bufferevent.h>
 
-#define SERVER_ADDRESS "0.0.0.0"
-#define SERVER_PORT 50005
-#define NUM_THREADS 4
+#include <calculator.hpp>
 
+
+const auto SERVER_ADDRESS = "0.0.0.0";
+const auto SERVER_PORT = 50005;
+const auto NUM_THREADS = 4;
+
+const auto HEADER_SESSION = "Session";
+
+const auto PATH_LCM = "/lcm";
+const auto REASON_OK = "OK";
+
+
+std::string readline(evbuffer* evbuf) {
+    size_t count;
+    auto ptr = evbuffer_readln(evbuf, &count, EVBUFFER_EOL_ANY);
+    if (ptr == nullptr) return {};
+    return std::string(ptr, ptr + count);
+}
+
+ void LCMCallback(evhttp_request* req, void*) {
+    std::clog << "Request LCM from " << evhttp_request_get_host(req) << std::endl;
+    auto headers = evhttp_request_get_input_headers(req);
+    auto sessionHeader = evhttp_find_header(headers, HEADER_SESSION);
+    auto sessionData = std::string(sessionHeader ? sessionHeader : "");
+    std::clog << "sessiondata <" << sessionData << ">" << std::endl;
+    auto calc = Calculator(sessionData);
+    auto* evbuf = evhttp_request_get_input_buffer(req);
+    for (;;) {
+        auto value = readline(evbuf);
+        if (value.empty()) break;
+        std::clog << "add value [" << value << "]" << std::endl;
+        calc.add_value(value);
+    }
+    if (calc.is_valid()) {
+        std::clog << "valid result: " << calc.get_result() << std::endl;
+    } else {
+        std::clog << "invalid sequence received" << std::endl;
+    }
+    headers = evhttp_request_get_output_headers(req);
+    evhttp_add_header(headers, HEADER_SESSION, calc.get_result().c_str());
+    evbuf = evhttp_request_get_output_buffer(req);
+    evbuffer_add_printf(evbuf, "%s\n", calc.get_result().c_str());
+    evhttp_send_reply(req, HTTP_OK, REASON_OK, evbuf);
+}
 
 int main(int, char**) {
-    char const SrvAddress[] = SERVER_ADDRESS;
-    std::uint16_t const SrvPort = SERVER_PORT;
-    const int SrvThreadCount = NUM_THREADS;
     try {
-        void (*OnRequest)(evhttp_request *, void *) = [] (evhttp_request *req, void *) {
-            auto *OutBuf = evhttp_request_get_output_buffer(req);
-            if (!OutBuf) return;
-            evbuffer_add_printf(OutBuf, "<html><body>It works!</body></html>");
-            evhttp_send_reply(req, HTTP_OK, "", OutBuf);
-        };
-        std::exception_ptr InitExcept;
-        bool volatile IsRun = true;
+        std::exception_ptr InitExcept; // quick and dirty.
+        volatile bool IsRun = true;
         evutil_socket_t Socket = -1;
         auto ThreadFunc = [&] () {
             try {
                 std::unique_ptr<event_base, decltype(&event_base_free)> EventBase(event_base_new(), &event_base_free);
-                if (!EventBase) throw std::runtime_error("Failed to create new base_event.");
+                if (!EventBase) throw std::runtime_error("EventBase");
                 std::unique_ptr<evhttp, decltype(&evhttp_free)> EvHttp(evhttp_new(EventBase.get()), &evhttp_free);
-                if (!EvHttp) throw std::runtime_error("Failed to create new evhttp.");
-                evhttp_set_gencb(EvHttp.get(), OnRequest, nullptr);
+                if (!EvHttp) throw std::runtime_error("evhttp_new");
+                evhttp_set_cb(EvHttp.get(), PATH_LCM, LCMCallback, nullptr);
                 if (Socket == -1) {
-                    auto *BoundSock = evhttp_bind_socket_with_handle(EvHttp.get(), SrvAddress, SrvPort);
-                    if (!BoundSock) throw std::runtime_error("Failed to bind server socket.");
+                    auto *BoundSock = evhttp_bind_socket_with_handle(EvHttp.get(), SERVER_ADDRESS, SERVER_PORT);
+                    if (!BoundSock) throw std::runtime_error("evhttp_bind_socket_with_handle");
                     if ((Socket = evhttp_bound_socket_get_fd(BoundSock)) == -1)
-                        throw std::runtime_error("Failed to get server socket for next instance.");
+                        throw std::runtime_error("evhttp_bound_socket_get_fd");
                 } else {
                     if (evhttp_accept_socket(EvHttp.get(), Socket) == -1)
-                        throw std::runtime_error("Failed to bind server socket for new instance.");
+                        throw std::runtime_error("evhttp_accept_socket");
                 }
-                while (IsRun) {
+                while (IsRun) { // event loop
                     event_base_loop(EventBase.get(), EVLOOP_NONBLOCK);
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1)); // yield
                 }
             }
-            catch (...) {
+            catch (...) { // catch anything, save it and then exit silently.
                 InitExcept = std::current_exception();
             }
         }; /* ThreadFunc */
-        auto ThreadDeleter = [&] (std::thread *t) {
+        auto ThreadDeleter = [&](std::thread *t) {
             IsRun = false;
             t->join();
             delete t;
-        };
-        typedef std::unique_ptr<std::thread, decltype(ThreadDeleter)> ThreadPtr;
-        typedef std::vector<ThreadPtr> ThreadPool;
+        }; /* ThreadDeleter */
+
+        using ThreadPtr = std::unique_ptr<std::thread, decltype(ThreadDeleter)>;
+        using ThreadPool = std::vector<ThreadPtr>;
         ThreadPool Threads;
-        for (int i = 0; i < SrvThreadCount; ++i) {
+        for (auto i = 0; i < NUM_THREADS; ++i) {
+            std::cout << "start thread " << i << " ..." << std::endl;
             ThreadPtr Thread(new std::thread(ThreadFunc), ThreadDeleter);
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            if (InitExcept != std::exception_ptr()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100)); // time to warm up
+            if (InitExcept != std::exception_ptr()) {  // something nasty happened
                 IsRun = false;
                 std::rethrow_exception(InitExcept);
             }
             Threads.push_back(std::move(Thread));
         }
-        std::cout << "Server started... Press [Enter] for quit." << std::endl;
-        std::cin.get();
+        std::cout << "Server ready. Press [Enter] for quit." << std::endl;
+        (void)std::cin.get();
         IsRun = false;
     }
-    catch (std::exception const &e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+    catch (const std::exception &exc) {
+        std::cerr << "Error: " << exc.what() << std::endl;
     }
+    std::cout << "Done." << std::endl;
     return 0;
 }

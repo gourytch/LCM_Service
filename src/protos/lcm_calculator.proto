@@ -4,11 +4,13 @@ package lcm_calculator;
 
 message SessionRequest {
     string session_id = 1;
+    string session_data = 2;
 }
 
 message CalculateRequest {
     string session_id = 1;
-    repeated string value = 2;
+    string session_data = 2;
+    repeated string value = 3;
 }
 
 message Response {
@@ -19,7 +21,8 @@ message Response {
     }
     string session_id = 1;
     SessionState state = 2;
-    string result = 3;
+    string session_data = 3;
+    string result = 4;
 }
 
 service Calculator {
