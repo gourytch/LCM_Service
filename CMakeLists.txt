@@ -41,6 +41,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GINAC REQUIRED ginac)
 pkg_check_modules(ProtoBuf REQUIRED protobuf)
 pkg_check_modules(gRPC REQUIRED grpc++)
+pkg_check_modules(LibEvent REQUIRED libevent_pthreads)
 
 find_program(PROTOC protoc)
 find_program(gRPC_CPP_PLUGIN grpc_cpp_plugin)

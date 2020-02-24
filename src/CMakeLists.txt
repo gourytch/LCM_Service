@@ -26,16 +26,28 @@ add_custom_command(
 include_directories("${CMAKE_CURRENT_BINARY_DIR}")
 
 link_libraries(${ProtoBuf_LIBRARIES} ${gRPC_LIBRARIES})
-add_executable(client client.cpp ${proto_srcs} ${grpc_srcs})
-target_link_libraries(client
+add_executable(client_grpc client_grpc.cpp ${proto_srcs} ${grpc_srcs})
+target_link_libraries(client_grpc
                       ${gRPC_LIBRARIES}
                       ${Boost_PROGRAM_OPTIONS_LIBRARY}
 
                      )
 
-add_executable(server server.cpp ${proto_srcs} ${grpc_srcs})
-target_link_libraries(server
+add_executable(server_grpc server_grpc.cpp ${proto_srcs} ${grpc_srcs})
+target_link_libraries(server_grpc
                       calculator
                       ${GINAC_LIBRARIES}
                       ${gRPC_LIBRARIES}
                      )
+
+add_executable(server_libevent server_libevent.cpp)
+target_link_libraries(server_libevent
+                      calculator
+                      ${LibEvent_LIBRARIES}
+                      ${GINAC_LIBRARIES})
+
+add_executable(client_libevent client_libevent.cpp)
+target_link_libraries(client_libevent
+                      calculator
+                      ${LibEvent_LIBRARIES}
+                      ${GINAC_LIBRARIES})
