@@ -12,67 +12,55 @@
 #include <event2/http.h>
 #include <event2/bufferevent.h>
 
-#include <calculator.hpp>
+#include "calculator.hpp"
+
+#include "shared.hpp"
 
 
-const auto SERVER_ADDRESS = "0.0.0.0";
-const auto SERVER_PORT = 50005;
-const auto NUM_THREADS = 4;
-
-const auto HEADER_SESSION = "Session";
-
-const auto PATH_LCM = "/lcm";
+const auto DEFAULT_NUM_THREADS = 4;
 const auto REASON_OK = "OK";
 
 
-std::string readline(evbuffer* evbuf) {
-    size_t count;
-    auto ptr = evbuffer_readln(evbuf, &count, EVBUFFER_EOL_ANY);
-    if (ptr == nullptr) return {};
-    return std::string(ptr, ptr + count);
+class Server final {
+public:
+    explicit Server(const std::string& address=DEFAULT_SERVER_HOST,
+                    int port=DEFAULT_SERVER_PORT);
+    void serve(int numThreads=DEFAULT_NUM_THREADS);
+
+protected:
+    std::string address;
+    int port;
+
+    void handleLCM(evhttp_request*);
+};
+
+Server::Server(const std::string& address, int port) {
+    this->address = address;
+    this->port = port;
 }
 
- void LCMCallback(evhttp_request* req, void*) {
-    std::clog << "Request LCM from " << evhttp_request_get_host(req) << std::endl;
-    auto headers = evhttp_request_get_input_headers(req);
-    auto sessionHeader = evhttp_find_header(headers, HEADER_SESSION);
-    auto sessionData = std::string(sessionHeader ? sessionHeader : "");
-    std::clog << "sessiondata <" << sessionData << ">" << std::endl;
-    auto calc = Calculator(sessionData);
-    auto* evbuf = evhttp_request_get_input_buffer(req);
-    for (;;) {
-        auto value = readline(evbuf);
-        if (value.empty()) break;
-        std::clog << "add value [" << value << "]" << std::endl;
-        calc.add_value(value);
-    }
-    if (calc.is_valid()) {
-        std::clog << "valid result: " << calc.get_result() << std::endl;
-    } else {
-        std::clog << "invalid sequence received" << std::endl;
-    }
-    headers = evhttp_request_get_output_headers(req);
-    evhttp_add_header(headers, HEADER_SESSION, calc.get_result().c_str());
-    evbuf = evhttp_request_get_output_buffer(req);
-    evbuffer_add_printf(evbuf, "%s\n", calc.get_result().c_str());
-    evhttp_send_reply(req, HTTP_OK, REASON_OK, evbuf);
-}
-
-int main(int, char**) {
+void Server::serve(int numThreads) {
     try {
         std::exception_ptr InitExcept; // quick and dirty.
         volatile bool IsRun = true;
         evutil_socket_t Socket = -1;
         auto ThreadFunc = [&] () {
             try {
-                std::unique_ptr<event_base, decltype(&event_base_free)> EventBase(event_base_new(), &event_base_free);
+                std::unique_ptr<event_base, decltype(&event_base_free)>
+                        EventBase(event_base_new(), &event_base_free);
                 if (!EventBase) throw std::runtime_error("EventBase");
-                std::unique_ptr<evhttp, decltype(&evhttp_free)> EvHttp(evhttp_new(EventBase.get()), &evhttp_free);
+                std::unique_ptr<evhttp, decltype(&evhttp_free)>
+                        EvHttp(evhttp_new(EventBase.get()), &evhttp_free);
                 if (!EvHttp) throw std::runtime_error("evhttp_new");
-                evhttp_set_cb(EvHttp.get(), PATH_LCM, LCMCallback, nullptr);
+                auto CallbackLCM = [](evhttp_request* req, void* ptr) {
+                    reinterpret_cast<Server*>(ptr)->handleLCM(req);
+                };
+                evhttp_set_cb(EvHttp.get(), PATH_LCM, CallbackLCM, this);
                 if (Socket == -1) {
-                    auto *BoundSock = evhttp_bind_socket_with_handle(EvHttp.get(), SERVER_ADDRESS, SERVER_PORT);
-                    if (!BoundSock) throw std::runtime_error("evhttp_bind_socket_with_handle");
+                    auto *BoundSock = evhttp_bind_socket_with_handle(
+                                EvHttp.get(), address.c_str(), port);
+                    if (!BoundSock)
+                        throw std::runtime_error("evhttp_bind_socket_with_handle");
                     if ((Socket = evhttp_bound_socket_get_fd(BoundSock)) == -1)
                         throw std::runtime_error("evhttp_bound_socket_get_fd");
                 } else {
@@ -97,8 +85,7 @@ int main(int, char**) {
         using ThreadPtr = std::unique_ptr<std::thread, decltype(ThreadDeleter)>;
         using ThreadPool = std::vector<ThreadPtr>;
         ThreadPool Threads;
-        for (auto i = 0; i < NUM_THREADS; ++i) {
-            std::cout << "start thread " << i << " ..." << std::endl;
+        for (auto i = 0; i < numThreads; ++i) {
             ThreadPtr Thread(new std::thread(ThreadFunc), ThreadDeleter);
             std::this_thread::sleep_for(std::chrono::milliseconds(100)); // time to warm up
             if (InitExcept != std::exception_ptr()) {  // something nasty happened
@@ -114,6 +101,24 @@ int main(int, char**) {
     catch (const std::exception &exc) {
         std::cerr << "Error: " << exc.what() << std::endl;
     }
+}
+
+/*** LCM WORKLOAD ***/
+void Server::handleLCM(evhttp_request* req) {
+    auto sessionData = getSessionData(req);
+    auto workload = getWorkload(req);
+    auto calc = Calculator(sessionData);
+
+    for (auto& it: workload) {
+        calc.add_value(it);
+    }
+    setSessionData(req, calc.get_result()); // just keep as a session data too
+    auto evbuf = setWorkload(req, calc.get_result());
+    evhttp_send_reply(req, HTTP_OK, REASON_OK, evbuf);
+}
+
+int main(int, char**) {
+    Server().serve();
     std::cout << "Done." << std::endl;
     return 0;
 }
